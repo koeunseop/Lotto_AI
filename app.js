@@ -46,27 +46,40 @@ function balls(nums, hit) {
 }
 
 /* ---------------------------------------------------------------- 엔진(worker) */
-const worker = new Worker('worker.js');
+let worker = null;
 const waiting = new Map();
 let seq = 0;
 let onEngineStatus = null;
 
-worker.onmessage = (e) => {
-  const m = e.data;
-  if (m.type === 'status') { if (onEngineStatus) onEngineStatus(m.text); return; }
-  const w = waiting.get(m.id);
-  if (!w) return;
-  if (m.type === 'progress') { if (w.onProgress) w.onProgress(m.pct); return; }
-  waiting.delete(m.id);
-  if (m.type === 'result') w.resolve(m.data); else w.reject(new Error(m.message));
-};
-worker.onerror = (e) => { for (const w of waiting.values()) w.reject(new Error(e.message || '엔진 오류')); waiting.clear(); };
+/* 작업 스레드는 처음 필요할 때 만든다: 서비스 워커가 켜진 뒤에 만들어야 내려받은 엔진이 오프라인용으로 저장된다 */
+async function getWorker() {
+  if (worker) return worker;
+  if ('serviceWorker' in navigator) {
+    try {
+      await Promise.race([navigator.serviceWorker.ready, new Promise((r) => setTimeout(r, 5000))]);
+      for (let i = 0; i < 20 && !navigator.serviceWorker.controller; i++) await new Promise((r) => setTimeout(r, 100));
+    } catch (e) { /* 서비스 워커 없이도 동작 */ }
+  }
+  worker = new Worker('worker.js');
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'status') { if (onEngineStatus) onEngineStatus(m.text); return; }
+    const w = waiting.get(m.id);
+    if (!w) return;
+    if (m.type === 'progress') { if (w.onProgress) w.onProgress(m.pct); return; }
+    waiting.delete(m.id);
+    if (m.type === 'result') w.resolve(m.data); else w.reject(new Error(m.message));
+  };
+  worker.onerror = (e) => { for (const w of waiting.values()) w.reject(new Error(e.message || '엔진 오류')); waiting.clear(); };
+  return worker;
+}
 
-function call(type, payload, onProgress) {
+async function call(type, payload, onProgress) {
+  const w = await getWorker();
   return new Promise((resolve, reject) => {
     const id = ++seq;
     waiting.set(id, { resolve, reject, onProgress });
-    worker.postMessage({ id, type, payload });
+    w.postMessage({ id, type, payload });
   });
 }
 
