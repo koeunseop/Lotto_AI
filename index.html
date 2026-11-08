@@ -66,16 +66,17 @@ nav button.on { color: var(--blue); box-shadow: inset 0 3px 0 var(--blue); }
 </head>
 <body>
 <header>
-  <h1>LOTTO AI 번호 추천 <span class="muted">모바일 v1.0 · PC 21.0 엔진</span></h1>
+  <h1>LOTTO AI 번호 추천 <span class="muted">모바일 v1.1 · PC 21.1 엔진</span></h1>
   <div class="last" id="last">불러오는 중...</div>
+  <div class="muted" style="margin-top:4px;color:var(--red)">※ 로또는 무작위 추첨이라 당첨을 예측하거나 보장하지 않습니다. 무작위와 성적을 비교해 보는 게임용입니다.</div>
 </header>
 <main>
   <!-- 추천 -->
   <section id="tab-rec" class="on">
     <div class="card">
-      <h2>하이브리드 AI vs 무작위</h2>
-      <div class="muted">관점별 AI 4개와 기법별 모델 4개의 확률 8개를 합쳐 5세트를 만들고, 같은 수의 무작위 5세트와 실제 당첨번호로 겨룹니다. 직전 회차 번호는 세트당 최대 1개입니다.</div>
-      <button id="go" style="margin-top:10px">AI 추천</button>
+      <h2>하이브리드 vs 무작위</h2>
+      <div class="muted">기법 모델 4개와 관점 3개의 확률 7개를 합쳐 5세트를 만들고, 같은 수의 무작위 5세트와 실제 당첨번호로 겨룹니다. 번호별 확률 차이가 0.2%p 수준이라 예측력은 없습니다 (최근 100회 검증: 세트당 평균 하이브리드 0.814개, 무작위 0.822개). 5번째 세트는 앞 세트와 겹치지 않게 고르고, 직전 회차 번호는 세트당 최대 1개입니다.</div>
+      <button id="go" style="margin-top:10px">추천 받기</button>
       <div class="bar" id="bar"><i id="barfill"></i></div>
       <div class="status" id="status"></div>
     </div>

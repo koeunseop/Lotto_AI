@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-모바일 엔진 (PC 21.0 의 번호 선정 로직을 그대로 옮긴 것: 엑셀/화면 코드 제외)
+모바일 엔진 (PC 21.1 의 번호 선정 로직을 그대로 옮긴 것: 엑셀/화면 코드 제외)
 브라우저(Pyodide) 안에서 실행되며 app.js 가 아래 함수를 호출한다.
 """
 import json
@@ -27,13 +27,15 @@ P_BASE = 6.0 / 45.0
 
 MODEL_KEYS = ["lr", "gb", "rf", "mlp"]   # 기법별 모델 4개 (앙상블 'ens' 는 이 4개의 표준화 평균)
 
-# 관점별 AI: 같은 모델(LR+GB 평균)에 입력 특징만 달리 준다 (features=None 이면 15개 전체)
+# 관점별 모델: 같은 모델(LR+GB 평균)에 입력 특징만 달리 준다 (features=None 이면 전체 특징)
+# 'all'은 기법 쪽 LR+GB 평균과 사실상 같아 하이브리드 7개에는 넣지 않고, 관점 평균(2세트)에만 쓴다.
 VIEWS: List[Dict[str, Any]] = [
     {"key": "all", "features": None},
     {"key": "short", "features": ["출현율_1회", "출현율_3회", "출현율_5회", "출현율_10회", "직전_인접수"]},
     {"key": "long", "features": ["출현율_20회", "출현율_50회", "출현율_100회", "출현율_전체", "출현편차_z", "번호크기"]},
     {"key": "gap", "features": ["미출현_간격", "간격/평균간격", "출현율_전체"]},
 ]
+HYBRID_VIEW_KEYS = ["short", "long", "gap"]
 
 AI_KEY = "hybrid"
 
@@ -41,8 +43,8 @@ PREV_CAP = 1                             # 한 세트에 넣을 수 있는 직�
 
 # 학습 시간 비중(실측): 진행률을 단계 수가 아니라 실제 걸리는 시간에 맞춰 보고하기 위한 값
 FIT_WEIGHTS = {"lr": 0.01, "gb": 0.27, "rf": 0.07, "mlp": 0.65}   # 기법별 모델
-VIEW_WEIGHTS = [0.84, 0.05, 0.05, 0.06]                           # 관점별 AI (VIEWS 순서)
-VIEW_SHARE = 0.1                                                  # 전체 학습 시간 중 관점별 AI 비중 (나머지는 기법별 모델)
+VIEW_WEIGHTS = [0.84, 0.05, 0.05, 0.06]                           # 관점별 모델 (VIEWS 순서)
+VIEW_SHARE = 0.1                                                  # 전체 학습 시간 중 관점별 모델 비중 (나머지는 기법별 모델)
 
 
 def pick_top(p: NDArray[np.floating[Any]], k: int, rng: np.random.Generator) -> NDArray[np.intp]:
@@ -270,9 +272,9 @@ class LottoEngine:
                 "metric_title": label,
                 "metric": [(n, f"{p[n - 1] * 100:.1f}%") for n in nums]}
 
-    # ------------------------------------------------------------------ 관점별 AI 4개
+    # ------------------------------------------------------------------ 관점별 모델 4개
     def fit_views(self, t_end: int, progress_cb: Optional[Callable[[float], None]] = None) -> Dict[str, Any]:
-        """1~t_end회로 관점별 AI(LR+GB) 4개를 학습한다. progress_cb(0~1)는 학습 시간 비중에 맞춰 보고한다."""
+        """1~t_end회로 관점별 모델(LR+GB) 4개를 학습한다. progress_cb(0~1)는 학습 시간 비중에 맞춰 보고한다."""
         if self.x is None or self.m is None:
             raise RuntimeError("학습 데이터가 준비되지 않았습니다.")
         t0 = self.MIN_T
@@ -317,8 +319,8 @@ class LottoEngine:
         return cls._norm(P_BASE + sd * z)
 
     def hybrid_sets(self, Pm: Dict[str, FloatArray], Pv: Dict[str, FloatArray], t: int, prev: Set[int]) -> List[Dict[str, Any]]:
-        """기법별 모델 4개 + 관점별 AI 4개의 확률로 5세트를 만든다. 직전 회차 번호는 세트당 PREV_CAP개까지만 넣는다."""
-        sources = [Pm[k] for k in MODEL_KEYS] + [Pv[v["key"]] for v in VIEWS]
+        """기법 4개 + 관점 3개(단기·장기·간격)의 확률 7개로 5세트를 만든다. 직전 회차 번호는 세트당 PREV_CAP개까지."""
+        sources = [Pm[k] for k in MODEL_KEYS] + [Pv[k] for k in HYBRID_VIEW_KEYS]
         p_hyb = self._blend(sources)
         p_view = self._blend([Pv[v["key"]] for v in VIEWS])
         p_model = Pm["ens"]
@@ -326,19 +328,24 @@ class LottoEngine:
         def top(p: FloatArray) -> List[int]:
             return (pick_top_capped(p, 6, np.random.default_rng(t), prev, PREV_CAP) + 1).tolist()
 
-        votes = np.zeros(45)
-        for p in sources:
-            for i in pick_top_capped(p, 6, np.random.default_rng(t), prev, PREV_CAP):
-                votes[i] += 1
         draw = (np.random.default_rng(900000 + t).choice(45, size=6, replace=False, p=p_hyb / p_hyb.sum()) + 1).tolist()
         draw = cap_sample(draw, p_hyb, prev, PREV_CAP, np.random.default_rng(900001 + t))
 
+        s1, s2, s3 = top(p_hyb), top(p_view), top(p_model)
+        used = np.zeros(45, dtype=np.float32)
+        for nums in (s1, s2, s3, draw):
+            for n in nums:
+                used[n - 1] += 1.0
+        # 앞 세트에 쓰인 횟수를 크게 깎아, 안 쓰인 번호부터 하이브리드 확률 순으로 고른다
+        p_div = p_hyb - 10.0 * used
+        s5 = top(p_div)
+
         return [
-            self._decorate(1, "하이브리드 종합", "8개 AI의 확률을 표준화해 평균 · 상위 6개", top(p_hyb), p_hyb, "하이브리드 확률"),
-            self._decorate(2, "관점 평균", "관점별 AI 4개(종합·단기·장기·간격)의 평균 확률 · 상위 6개", top(p_view), p_view, "관점 평균 확률"),
-            self._decorate(3, "기법 평균", "기법별 모델 4개(로지스틱·GB·RF·신경망)의 평균 확률 · 상위 6개", top(p_model), p_model, "기법 평균 확률"),
+            self._decorate(1, "하이브리드 종합", "기법 4개 + 관점 3개의 확률을 표준화해 평균 · 상위 6개", s1, p_hyb, "하이브리드 확률"),
+            self._decorate(2, "관점 평균", "관점별 모델 4개(종합·단기·장기·간격)의 평균 확률 · 상위 6개", s2, p_view, "관점 평균 확률"),
+            self._decorate(3, "기법 평균", "기법별 모델 4개(로지스틱·GB·RF·신경망)의 평균 확률 · 상위 6개", s3, p_model, "기법 평균 확률"),
             self._decorate(4, "확률 추첨", "하이브리드 확률대로 가중 추첨 (확률 차이가 작아 사실상 무작위에 가까움)", draw, p_hyb, "하이브리드 확률"),
-            self._decorate(5, "8개 AI 득표", "8개 AI가 각자 뽑은 상위 6개에 많이 오른 번호 순 · 동률은 하이브리드 확률", top(votes + p_hyb), p_hyb, "하이브리드 확률"),
+            self._decorate(5, "분산 번호", "1~4세트에 덜 쓰인 번호를 하이브리드 확률 순으로 6개", s5, p_hyb, "하이브리드 확률"),
         ]
 
     # ------------------------------------------------------------------ 분석 (다음 회차 추천)
@@ -348,7 +355,7 @@ class LottoEngine:
         if self.x is None:
             raise RuntimeError("특징 데이터가 준비되지 않았습니다.")
         if t < self.MIN_T + 100 or t > len(self.past_data):
-            raise ValueError(f"AI 학습에는 최소 {self.MIN_T + 100}회 이상의 데이터가 필요합니다.")
+            raise ValueError(f"학습에는 최소 {self.MIN_T + 100}회 이상의 데이터가 필요합니다.")
         cb = progress_cb or (lambda p: None)
 
         cb(5)

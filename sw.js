@@ -1,5 +1,5 @@
 /* 오프라인 실행용 서비스 워커: 앱 파일과 파이썬 엔진(Pyodide)을 처음 받은 뒤에는 기기에 저장해 두고 쓴다 */
-const SHELL = 'lotto-shell-v1';
+const SHELL = 'lotto-shell-v2';
 const CDN = 'lotto-cdn-v1';
 const FILES = ['./', 'index.html', 'app.js', 'worker.js', 'engine_mobile.py', 'seed_draws.json',
                'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];

@@ -2,6 +2,7 @@
 /* LOTTO AI 모바일: 화면·저장·채점은 여기서, 번호 선정(파이썬 엔진)은 worker.js 에서 한다 */
 
 const STORE_KEY = 'lotto.state.v1';
+const RULE = '21.1';                        // 번호 선정 규칙 버전: 다른 규칙의 기록은 성적에 섞지 않는다
 const EXPECTED = 0.8;                       // 무작위 세트 1개의 기대 일치 개수
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -100,6 +101,7 @@ function scoredRows() {
     const d = byRound.get(key);
     if (!d) continue;
     const rec = records[key];
+    if (rec.rule !== RULE) continue;
     const actual = d.slice(1, 7);
     rows.push({ round: key, actual, ai: matches(rec.sets, actual), rand: matches(rec.random, actual), rec });
   }
@@ -146,7 +148,7 @@ function scoreTable(rows, withDetail) {
 function renderHeader() {
   const d = draws[draws.length - 1];
   $('#last').textContent = `최근 ${d[0]}회 당첨 : ${d.slice(1, 7).join(', ')} + 보너스 ${d[7]}`;
-  $('#go').textContent = `AI 추천 (${d[0] + 1}회)`;
+  $('#go').textContent = `추천 받기 (${d[0] + 1}회)`;
 }
 
 function renderResult(round, detail, sets, random, note) {
@@ -160,7 +162,7 @@ function renderResult(round, detail, sets, random, note) {
   const rdHtml = random.map((nums, i) => `<div class="set"><div class="ttl">[SET ${i + 1}] 무작위 ${i + 1}</div>${balls(nums)}</div>`).join('');
   const both = used.filter((n) => usedR.includes(n));
   $('#result').innerHTML =
-    `<div class="card"><h2>${round}회 하이브리드 AI</h2><div class="muted">${esc(note)}</div>${aiHtml}
+    `<div class="card"><h2>${round}회 하이브리드</h2><div class="muted">${esc(note)}</div>${aiHtml}
        <div class="used">사용 번호 ${used.length}개: ${used.join(', ')}</div></div>
      <div class="card"><h2>${round}회 무작위 기준</h2><div class="muted">순수 무작위 6개 5세트 (직전 번호 제한 없음)</div>${rdHtml}
        <div class="used">사용 번호 ${usedR.length}개: ${usedR.join(', ')}</div></div>
@@ -169,14 +171,17 @@ function renderResult(round, detail, sets, random, note) {
 
 function renderSaved() {
   const rec = records[lastRound() + 1];
-  if (rec) renderResult(lastRound() + 1, rec.detail, rec.sets, rec.random, '저장된 추천입니다. 새 회차가 입력되기 전에는 같은 번호가 나옵니다.');
+  if (rec && rec.rule === RULE) renderResult(lastRound() + 1, rec.detail, rec.sets, rec.random, '저장된 추천입니다. 새 회차가 입력되기 전에는 같은 번호가 나옵니다.');
   else $('#result').innerHTML = '';
 }
 
 function renderScore() {
   const rows = scoredRows();
   $('#sum').textContent = rows.length ? summary(rows) : '아직 채점된 기록이 없습니다.';
-  const pending = Object.keys(records).map(Number).filter((r) => r > lastRound());
+  const old = Object.keys(records).map(Number).filter((r) => records[r].rule !== RULE && r <= lastRound()).length;
+  if (old) $('#sum').textContent += `
+이전 규칙(v21.0 이하)으로 만든 기록 ${old}회는 성적에서 제외됩니다.`;
+  const pending = Object.keys(records).map(Number).filter((r) => r > lastRound() && records[r].rule === RULE);
   if (pending.length) $('#sum').textContent += `\n채점 대기: ${pending.join('회, ')}회 (해당 회차를 입력하면 자동 채점)`;
   $('#scoreRows').innerHTML = scoreTable(rows, true);
   const avail = draws.length - 150;
@@ -214,10 +219,10 @@ async function recommend() {
   try {
     $('#status').textContent = '엔진 준비 중...';
     await ensureLoaded();
-    $('#status').textContent = 'AI 학습 중...';
-    const res = await call('recommend', null, (p) => { setBar(p); $('#status').textContent = `AI 학습 중 ${p}%`; });
+    $('#status').textContent = '학습 중...';
+    const res = await call('recommend', null, (p) => { setBar(p); $('#status').textContent = `학습 중 ${p}%`; });
     const detail = res.sets.map((s) => ({ title: s.title, rule: s.rule, mt: s.metric_title, metric: s.metric }));
-    records[res.round] = { sets: res.sets.map((s) => s.nums), random: res.random, detail };
+    records[res.round] = { sets: res.sets.map((s) => s.nums), random: res.random, detail, rule: RULE };
     persist();
     renderResult(res.round, detail, records[res.round].sets, res.random, `직전 회차 번호 세트당 최대 1개 · 무작위 기준과 함께 기록됨 (${((Date.now() - t0) / 1000).toFixed(0)}초)`);
     renderScore();

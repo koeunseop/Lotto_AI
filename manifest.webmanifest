@@ -1,7 +1,7 @@
 {
   "name": "LOTTO AI 번호 추천",
   "short_name": "LOTTO AI",
-  "description": "하이브리드 AI와 무작위가 겨루는 로또 번호 추천 게임",
+  "description": "하이브리드와 무작위가 겨루는 로또 번호 추천 게임 (당첨을 예측하거나 보장하지 않습니다)",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
