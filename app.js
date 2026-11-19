@@ -2,7 +2,7 @@
 /* LOTTO AI 모바일: 화면·저장·채점은 여기서, 번호 선정(파이썬 엔진)은 worker.js 에서 한다 */
 
 const STORE_KEY = 'lotto.state.v1';
-const RULE = '21.1';                        // 번호 선정 규칙 버전: 다른 규칙의 기록은 성적에 섞지 않는다
+const RULE = '21.12';                        // 번호 선정 규칙 버전: 다른 규칙의 기록은 성적에 섞지 않는다
 const EXPECTED = 0.8;                       // 무작위 세트 1개의 기대 일치 개수
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -116,10 +116,55 @@ function summary(rows) {
   const lose = ai.filter((a, i) => a < rd[i] - 1e-9).length;
   const hit3 = rows.reduce((s, r) => s + r.ai.filter((m) => m >= 3).length, 0);
   const hit3r = rows.reduce((s, r) => s + r.rand.filter((m) => m >= 3).length, 0);
-  return `하이브리드 ${rows.length}회 · 세트당 평균 일치 ${mean(ai).toFixed(2)}개 (같은 회차 무작위 ${mean(rd).toFixed(2)}개)\n` +
+  return `모델별 5세트 ${rows.length}회 · 세트당 평균 일치 ${mean(ai).toFixed(2)}개 (같은 회차 무작위 ${mean(rd).toFixed(2)}개)\n` +
     `회차별 무작위와 비교 ${win}승 ${rows.length - win - lose}무 ${lose}패\n` +
     `3개 이상 맞힌 세트 ${hit3}개 (무작위 ${hit3r}개)\n` +
     `무작위 5세트의 기대 평균은 세트당 ${EXPECTED.toFixed(2)}개입니다. 회차가 적으면 승패 차이는 우연일 수 있습니다(대략 50회 이상 쌓여야 가릴 수 있습니다).`;
+}
+
+const sd = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / (a.length - 1)); };
+
+/* 모델 5개 + 무작위(5세트 평균)의 누적 순위표: 평균이 같으면 공동 순위, 이긴 주는 그 회차 무작위 5세트 평균보다 많이 맞힌 주 */
+function league(rows, names) {
+  const rm = rows.map((r) => mean(r.rand));
+  const out = names.map((name, j) => {
+    const a = rows.map((r) => r.ai[j]);
+    let run = 0, best = 0, wins = 0;
+    a.forEach((x, i) => { if (x > rm[i] + 1e-9) { wins++; run++; best = Math.max(best, run); } else run = 0; });
+    return { name, mean: mean(a), se: sd(a) / Math.sqrt(a.length), hit3: a.filter((x) => x >= 3).length, wins, cur: run, best };
+  });
+  out.push({ name: '무작위(5세트 평균)', mean: mean(rm), se: sd(rm) / Math.sqrt(rm.length), hit3: null, wins: null, cur: null, best: null, rand: true });
+  out.sort((x, y) => y.mean - x.mean);
+  out.forEach((g) => { g.rank = 1 + out.filter((h) => h.mean > g.mean + 1e-9).length; });
+  return out;
+}
+
+function leagueHtml(rows) {
+  if (!rows.length) return '';
+  const names = rows[rows.length - 1].rec.detail.map((d) => d.title);
+  const lg = league(rows, names);
+  const models = lg.filter((g) => !g.rand);
+  const spread = Math.max(...models.map((g) => g.mean)) - Math.min(...models.map((g) => g.mean));
+  const maxSe = Math.max(...models.map((g) => g.se));
+  const note = rows.length < 2 ? '회차가 적어 아직 우열을 가릴 수 없습니다.'
+    : spread < 2 * maxSe ? `모델 사이의 순위 차이(${spread.toFixed(2)}개)가 오차 범위 안입니다. 아직 우열을 가릴 수 없습니다.`
+      : `모델 사이의 순위 차이(${spread.toFixed(2)}개)가 오차 범위를 넘습니다.`;
+  const tr = lg.map((g) => `<tr><td>${g.rank}위</td><td style="text-align:left">${esc(g.name)}</td><td>${g.mean.toFixed(2)}<span class="muted"> ±${g.se.toFixed(2)}</span></td>` +
+    `<td>${g.rand ? '-' : g.hit3}</td><td>${g.rand ? '-' : g.wins}</td><td>${g.rand ? '-' : g.cur + '/' + g.best}</td></tr>`).join('');
+  return `<h2 style="margin-top:12px">모델 순위표</h2><div class="muted">모델 5개끼리 경쟁하고 무작위는 5세트 평균으로 함께 비교합니다. 기대 일치는 세트당 ${EXPECTED.toFixed(2)}개입니다.</div>
+    <table><tr><th>순위</th><th>참가자</th><th>평균(±오차)</th><th>3개↑</th><th>이긴 주</th><th>연승(현재/최장)</th></tr>${tr}</table>
+    <div class="muted" style="margin-top:4px">${note} (이긴 주 = 그 회차 무작위 5세트 평균보다 많이 맞힌 주)</div>`;
+}
+
+function weeklyLine(rows) {
+  const r = rows[rows.length - 1];
+  const names = r.rec.detail.map((d) => d.title);
+  const best = Math.max(...r.ai);
+  const top = names.filter((_, i) => r.ai[i] === best);
+  const a = mean(r.ai), b = mean(r.rand);
+  const res = a > b + 1e-9 ? '승' : a < b - 1e-9 ? '패' : '무';
+  const who = top.length === names.length ? `모든 모델 ${best}개 일치` : `가장 많이 맞힌 모델 ${top.join(', ')} (${best}개 일치)`;
+  return `${r.round}회 결과: ${who} · 모델 평균 ${a.toFixed(1)}개 / 무작위 ${b.toFixed(1)}개 (${res})`;
 }
 
 function resultCell(a, r) { return a > r + 1e-9 ? ['승', 'win'] : a < r - 1e-9 ? ['패', 'lose'] : ['무', '']; }
@@ -137,11 +182,11 @@ function scoreTable(rows, withDetail) {
     const aiNames = r.rec.detail.map((d) => d.title);
     h += `<details><summary>${head}</summary>
       <div class="muted">당첨번호</div>${balls(r.actual)}
-      <div class="muted">하이브리드</div>${block(r.rec.sets, r.ai, aiNames)}
+      <div class="muted">모델별 5세트</div>${block(r.rec.sets, r.ai, aiNames)}
       <div class="muted">무작위</div>${block(r.rec.random, r.rand, r.rand.map((_, i) => `무작위 ${i + 1}`))}
     </details>`;
   }
-  return '<table><tr><th style="width:25%">회차</th><th style="width:25%">하이브리드</th><th style="width:25%">무작위</th><th style="width:25%">결과</th></tr></table>' + h;
+  return '<table><tr><th style="width:25%">회차</th><th style="width:25%">모델별</th><th style="width:25%">무작위</th><th style="width:25%">결과</th></tr></table>' + h;
 }
 
 /* ---------------------------------------------------------------- 화면 */
@@ -151,7 +196,7 @@ function renderHeader() {
   $('#go').textContent = `추천 받기 (${d[0] + 1}회)`;
 }
 
-function renderResult(round, detail, sets, random, note) {
+function renderResult(round, detail, sets, random, note, pool) {
   const used = [...new Set(sets.flat())].sort((a, b) => a - b);
   const usedR = [...new Set(random.flat())].sort((a, b) => a - b);
   const aiHtml = sets.map((nums, i) => {
@@ -162,25 +207,27 @@ function renderResult(round, detail, sets, random, note) {
   const rdHtml = random.map((nums, i) => `<div class="set"><div class="ttl">[SET ${i + 1}] 무작위 ${i + 1}</div>${balls(nums)}</div>`).join('');
   const both = used.filter((n) => usedR.includes(n));
   $('#result').innerHTML =
-    `<div class="card"><h2>${round}회 하이브리드</h2><div class="muted">${esc(note)}</div>${aiHtml}
-       <div class="used">사용 번호 ${used.length}개: ${used.join(', ')}</div></div>
-     <div class="card"><h2>${round}회 무작위 기준</h2><div class="muted">순수 무작위 6개 5세트 (직전 번호 제한 없음)</div>${rdHtml}
+    `<div class="card"><h2>${round}회 모델별 5세트</h2><div class="muted">${esc(note)}</div>${aiHtml}
+       <div class="used">사용 번호 ${used.length}개: ${used.join(', ')}</div>
+       ${pool && pool.length ? `<div class="muted" style="margin-top:4px">풀 ${pool.length}개 (최근 52회 최빈수): 풀에서 빠진 번호 ${Array.from({ length: 45 }, (_, i) => i + 1).filter((n) => !pool.includes(n)).join(', ')}</div>` : ''}</div>
+     <div class="card"><h2>${round}회 무작위 기준</h2><div class="muted">조건 없는 순수 무작위 5세트</div>${rdHtml}
        <div class="used">사용 번호 ${usedR.length}개: ${usedR.join(', ')}</div></div>
      <div class="muted" style="margin:0 4px 12px">둘 다 사용한 번호 ${both.length}개: ${both.join(', ') || '없음'}</div>`;
 }
 
 function renderSaved() {
   const rec = records[lastRound() + 1];
-  if (rec && rec.rule === RULE) renderResult(lastRound() + 1, rec.detail, rec.sets, rec.random, '저장된 추천입니다. 새 회차가 입력되기 전에는 같은 번호가 나옵니다.');
+  if (rec && rec.rule === RULE) renderResult(lastRound() + 1, rec.detail, rec.sets, rec.random, '저장된 추천입니다. 새 회차가 입력되기 전에는 같은 번호가 나옵니다.', rec.pool);
   else $('#result').innerHTML = '';
 }
 
 function renderScore() {
   const rows = scoredRows();
-  $('#sum').textContent = rows.length ? summary(rows) : '아직 채점된 기록이 없습니다.';
+  $('#sum').textContent = rows.length ? weeklyLine(rows) + '\n\n' + summary(rows) : '아직 채점된 기록이 없습니다.';
+  $('#league').innerHTML = leagueHtml(rows);
   const old = Object.keys(records).map(Number).filter((r) => records[r].rule !== RULE && r <= lastRound()).length;
   if (old) $('#sum').textContent += `
-이전 규칙(v21.0 이하)으로 만든 기록 ${old}회는 성적에서 제외됩니다.`;
+이전 규칙으로 만든 기록 ${old}회는 성적에서 제외됩니다.`;
   const pending = Object.keys(records).map(Number).filter((r) => r > lastRound() && records[r].rule === RULE);
   if (pending.length) $('#sum').textContent += `\n채점 대기: ${pending.join('회, ')}회 (해당 회차를 입력하면 자동 채점)`;
   $('#scoreRows').innerHTML = scoreTable(rows, true);
@@ -222,9 +269,9 @@ async function recommend() {
     $('#status').textContent = '학습 중...';
     const res = await call('recommend', null, (p) => { setBar(p); $('#status').textContent = `학습 중 ${p}%`; });
     const detail = res.sets.map((s) => ({ title: s.title, rule: s.rule, mt: s.metric_title, metric: s.metric }));
-    records[res.round] = { sets: res.sets.map((s) => s.nums), random: res.random, detail, rule: RULE };
+    records[res.round] = { sets: res.sets.map((s) => s.nums), random: res.random, detail, pool: res.pool, rule: RULE };
     persist();
-    renderResult(res.round, detail, records[res.round].sets, res.random, `직전 회차 번호 세트당 최대 1개 · 무작위 기준과 함께 기록됨 (${((Date.now() - t0) / 1000).toFixed(0)}초)`);
+    renderResult(res.round, detail, records[res.round].sets, res.random, `직전 회차 번호는 우연으로 포함 · 무작위 기준과 함께 기록됨 (${((Date.now() - t0) / 1000).toFixed(0)}초)`, res.pool);
     renderScore();
     $('#status').style.color = 'var(--green)';
     $('#status').textContent = `${res.round}회 추천 완료`;

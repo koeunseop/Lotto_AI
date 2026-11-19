@@ -66,7 +66,7 @@ nav button.on { color: var(--blue); box-shadow: inset 0 3px 0 var(--blue); }
 </head>
 <body>
 <header>
-  <h1>LOTTO AI 번호 추천 <span class="muted">모바일 v1.1 · PC 21.1 엔진</span></h1>
+  <h1>LOTTO AI 번호 추천 <span class="muted">모바일 v1.2 · PC 21.13 엔진</span></h1>
   <div class="last" id="last">불러오는 중...</div>
   <div class="muted" style="margin-top:4px;color:var(--red)">※ 로또는 무작위 추첨이라 당첨을 예측하거나 보장하지 않습니다. 무작위와 성적을 비교해 보는 게임용입니다.</div>
 </header>
@@ -74,8 +74,9 @@ nav button.on { color: var(--blue); box-shadow: inset 0 3px 0 var(--blue); }
   <!-- 추천 -->
   <section id="tab-rec" class="on">
     <div class="card">
-      <h2>하이브리드 vs 무작위</h2>
-      <div class="muted">기법 모델 4개와 관점 3개의 확률 7개를 합쳐 5세트를 만들고, 같은 수의 무작위 5세트와 실제 당첨번호로 겨룹니다. 번호별 확률 차이가 0.2%p 수준이라 예측력은 없습니다 (최근 100회 검증: 세트당 평균 하이브리드 0.814개, 무작위 0.822개). 5번째 세트는 앞 세트와 겹치지 않게 고르고, 직전 회차 번호는 세트당 최대 1개입니다.</div>
+      <h2>모델별 5세트 vs 무작위</h2>
+      <div class="muted" style="color:var(--text);font-weight:700;line-height:1.6">모델 5개가 각자 점수 높은 6개를 고릅니다.<br>후보: 최근 52회 최빈수 36개<br>제외: 연속 3개↑ · 이웃쌍 3개↑ · 모두 홀/짝 · 합계 80 미만/200 초과 · 같은 십단위 4개↑ · 십단위 2군데↓</div>
+      <div class="muted" style="margin-top:6px">같은 수의 무작위 5세트와 실제 당첨번호로 겨룹니다. 예측력은 검증되지 않았고, 이전 구간 검증에서 무작위(세트당 0.80개)와 차이가 없었습니다. 게임용입니다.</div>
       <button id="go" style="margin-top:10px">추천 받기</button>
       <div class="bar" id="bar"><i id="barfill"></i></div>
       <div class="status" id="status"></div>
@@ -89,6 +90,7 @@ nav button.on { color: var(--blue); box-shadow: inset 0 3px 0 var(--blue); }
       <h2>실제 기록 성적</h2>
       <div class="muted">추천한 회차의 당첨번호를 '데이터' 탭에 입력하면 자동으로 채점됩니다. 무작위 5세트의 기대 일치는 세트당 0.80개입니다.</div>
       <div class="sum" id="sum"></div>
+      <div id="league"></div>
       <div id="scoreRows"></div>
     </div>
     <div class="card">
