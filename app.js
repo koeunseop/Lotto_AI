@@ -90,6 +90,25 @@ async function ensureLoaded() {
   loadedKey = drawKey();
 }
 
+/* ---------------------------------------------------------------- 과거 당첨 이력 */
+/* 이 6개 번호가 지난 모든 회차에서 1~5등(6개 / 5개+보너스 / 5개 / 4개 / 3개 일치)에 해당했을 횟수 */
+function prizeCounts(nums) {
+  const mine = new Set(nums), cnt = [0, 0, 0, 0, 0];
+  for (const d of draws) {
+    let m = 0;
+    for (let i = 1; i <= 6; i++) if (mine.has(d[i])) m++;
+    if (m === 6) cnt[0]++;
+    else if (m === 5) cnt[mine.has(d[7]) ? 1 : 2]++;
+    else if (m === 4) cnt[3]++;
+    else if (m === 3) cnt[4]++;
+  }
+  return cnt;
+}
+function prizeHtml(nums) {
+  const c = prizeCounts(nums);
+  return `<div class="prize${c[0] ? ' first' : ''}">과거 ${c.map((v, i) => `${i + 1}등 ${v}`).join(' · ')}</div>`;
+}
+
 /* ---------------------------------------------------------------- 채점 */
 const matches = (sets, actual) => { const a = new Set(actual); return sets.map((s) => s.filter((n) => a.has(n)).length); };
 const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
@@ -202,9 +221,9 @@ function renderResult(round, detail, sets, random, note, pool) {
   const aiHtml = sets.map((nums, i) => {
     const d = detail[i];
     const prob = d.metric && d.metric.length ? `<div class="prob">${esc(d.mt)}: ${d.metric.map((m) => `${m[0]} ${esc(m[1])}`).join(' · ')}</div>` : '';
-    return `<div class="set"><div class="ttl">[SET ${i + 1}] ${esc(d.title)}</div>${balls(nums)}<div class="rule">${esc(d.rule)}</div>${prob}</div>`;
+    return `<div class="set"><div class="ttl">[SET ${i + 1}] ${esc(d.title)}</div>${balls(nums)}${prizeHtml(nums)}<div class="rule">${esc(d.rule)}</div>${prob}</div>`;
   }).join('');
-  const rdHtml = random.map((nums, i) => `<div class="set"><div class="ttl">[SET ${i + 1}] 무작위 ${i + 1}</div>${balls(nums)}</div>`).join('');
+  const rdHtml = random.map((nums, i) => `<div class="set"><div class="ttl">[SET ${i + 1}] 무작위 ${i + 1}</div>${balls(nums)}${prizeHtml(nums)}</div>`).join('');
   const both = used.filter((n) => usedR.includes(n));
   $('#result').innerHTML =
     `<div class="card"><h2>${round}회 모델별 5세트</h2><div class="muted">${esc(note)}</div>${aiHtml}
